@@ -19,10 +19,10 @@ data = data[np.in1d(data.ItemId, item_supports[item_supports >= 5].index)]
 session_lengths = data.groupby('SessionId').size()
 data = data[np.in1d(data.SessionId, session_lengths[session_lengths >= 2].index)]
 
-tmax = data['Time'].max()
+max_time = data['Time'].max()
 session_max_times = data.groupby('SessionId')['Time'].max()
-session_train = session_max_times[session_max_times < tmax - dt.timedelta(1)].index
-session_test = session_max_times[session_max_times >= tmax - dt.timedelta(1)].index
+session_train = session_max_times[session_max_times < max_time - dt.timedelta(1)].index
+session_test = session_max_times[session_max_times >= max_time - dt.timedelta(1)].index
 
 train = data[np.in1d(data.SessionId, session_train)]
 test = data[np.in1d(data.SessionId, session_test)]
