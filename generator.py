@@ -14,14 +14,16 @@ from keras.layers import Input, Dense, Dropout, GRU
 
 class SessionDataset:
     """Credit to yhs-968/pyGRU4REC."""
-    def __init__(self, data, sep='\t', session_key='SessionId', item_key='ItemId', time_key='Time', n_samples=-1, itemmap=None, time_sort=False):
+
+    def __init__(self, data, session_key='SessionId', item_key='ItemId', time_key='Time', item_map=None,
+                 time_sort=False):
         """
         Args:
             path: path of the csv file
             sep: separator for the csv
             session_key, item_key, time_key: name of the fields corresponding to the sessions, items, time
             n_samples: the number of samples to use. If -1, use the whole dataset.
-            itemmap: mapping between item IDs and item indices
+            item_map: mapping between item IDs and item indices
             time_sort: whether to sort the sessions by time or not
         """
         self.df = data
@@ -29,7 +31,7 @@ class SessionDataset:
         self.item_key = item_key
         self.time_key = time_key
         self.time_sort = time_sort
-        self.add_item_indices(itemmap=itemmap)
+        self.item_map = self.add_item_indices(item_map=item_map)
         self.df.sort_values([session_key, time_key], inplace=True)
 
         # Sort the df by time, and then by session ID. That is, df is sorted by session ID and
@@ -61,29 +63,30 @@ class SessionDataset:
 
         return session_idx_arr
 
-    def add_item_indices(self, itemmap=None):
+    def add_item_indices(self, item_map=None):
         """
         Add item index column named "item_idx" to the df
         Args:
-            itemmap (pd.DataFrame): mapping between the item Ids and indices
+            item_map (pd.DataFrame): mapping between the item Ids and indices
         """
-        if itemmap is None:
+        if item_map is None:
             item_ids = self.df[self.item_key].unique()  # unique item ids
             item2idx = pd.Series(data=np.arange(len(item_ids)),
                                  index=item_ids)
-            itemmap = pd.DataFrame({self.item_key :item_ids,
-                                    'item_idx' :item2idx[item_ids].values})
+            item_map = pd.DataFrame({self.item_key: item_ids,
+                                    'item_idx': item2idx[item_ids].values})
+            return item_map
 
-        self.itemmap = itemmap
-        self.df = pd.merge(self.df, self.itemmap, on=self.item_key, how='inner')
+        self.df = pd.merge(self.df, self.item_map, on=self.item_key, how='inner')
 
     @property
     def items(self):
-        return self.itemmap.ItemId.unique()
+        return self.item_map.ItemId.unique()
 
 
 class SessionDataLoader:
     """Credit to yhs-968/pyGRU4REC."""
+
     def __init__(self, dataset, batch_size=50):
         """
         A class for creating session-parallel mini-batches.
@@ -104,10 +107,10 @@ class SessionDataLoader:
         """
 
         df = self.dataset.df
-        session_ke y ='SessionId'
-        item_ke y ='ItemId'
-        time_ke y ='TimeStamp'
-        self.n_items = df[item_key].nunique( ) +1
+        session_key = 'SessionId'
+        item_key = 'ItemId'
+        time_key = 'TimeStamp'
+        self.n_items = df[item_key].nunique() + 1
         click_offsets = self.dataset.click_offsets
         session_idx_arr = self.dataset.session_idx_arr
 
@@ -115,7 +118,7 @@ class SessionDataLoader:
         maxiter = iters.max()
         start = click_offsets[session_idx_arr[iters]]
         end = click_offsets[session_idx_arr[iters] + 1]
-        mask = [] # indicator for the sessions to be terminated
+        mask = []  # indicator for the sessions to be terminated
         finished = False
 
         while not finished:
