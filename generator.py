@@ -63,7 +63,7 @@ class SessionDataset:
 
         return session_idx_arr
 
-    def add_item_indices(self, item_map=None):
+    def add_item_indices(self, item_map=None):  # todo 원래 하던 대로 dict 한 다음 apply
         """
         Add item index column named "item_idx" to the df
         Args:
