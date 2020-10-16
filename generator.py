@@ -1,42 +1,36 @@
-import argparse
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
-
-from tensorflow.keras.models import Model
-from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.losses import categorical_crossentropy
-from tensorflow.keras.layers import Input, Dense, Dropout, GRU
 
 
 class SessionDataset:
     """Credit to yhs-968/pyGRU4REC."""
 
-    def __init__(self, data, session_key='SessionId', item_key='ItemId', time_key='Time', item_map=None,
-                 time_sort=False):
+    def __init__(self, data, session_key='SessionId', item_key='ItemId', time_key='Time'):
         """
         Args:
             path: path of the csv file
             sep: separator for the csv
             session_key, item_key, time_key: name of the fields corresponding to the sessions, items, time
-            n_samples: the number of samples to use. If -1, use the whole dataset.
-            item_map: mapping between item IDs and item indices
             time_sort: whether to sort the sessions by time or not
         """
         self.df = data
         self.session_key = session_key
         self.item_key = item_key
         self.time_key = time_key
-        self.time_sort = time_sort
-        self.item_map = self.add_item_indices(item_map=item_map)
+        self.idx2id = self.add_item_indices()
         self.df.sort_values([session_key, time_key], inplace=True)
-
-        # Sort the df by time, and then by session ID. That is, df is sorted by session ID and
         # clicks within a session are next to each other, where the clicks within a session are time-ordered.
-
         self.click_offsets = self.get_click_offsets()
-        self.session_idx_arr = self.order_session_idx()
+        self.session_idx_arr = np.arange(self.df[self.session_key].nunique())  # indexing to SessionId
+
+    def add_item_indices(self):
+        idx2id = {index: item_id for item_id, index in enumerate(self.df['ItemId'].unique())}
+        self.df['item_index'] = self.df['ItemId'].map(idx2id.get)
+        return idx2id
+
+    @property
+    def items(self):
+        return self.item_map.ItemId.unique()
 
     def get_click_offsets(self):
         """
@@ -48,38 +42,6 @@ class SessionDataset:
         offsets[1:] = self.df.groupby(self.session_key).size().cumsum()
 
         return offsets
-
-    def order_session_idx(self):
-        """ Order the session indices """
-        if self.time_sort:
-            # starting time for each sessions, sorted by session IDs
-            sessions_start_time = self.df.groupby(self.session_key)[self.time_key].min().values
-            # order the session indices by session starting times
-            session_idx_arr = np.argsort(sessions_start_time)
-        else:
-            session_idx_arr = np.arange(self.df[self.session_key].nunique())
-
-        return session_idx_arr
-
-    def add_item_indices(self, item_map=None):  # todo 원래 하던 대로 dict 한 다음 apply
-        """
-        Add item index column named "item_idx" to the df
-        Args:
-            item_map (pd.DataFrame): mapping between the item Ids and indices
-        """
-        if item_map is None:
-            item_ids = self.df[self.item_key].unique()  # unique item ids
-            item2idx = pd.Series(data=np.arange(len(item_ids)),
-                                 index=item_ids)
-            item_map = pd.DataFrame({self.item_key: item_ids,
-                                    'item_idx': item2idx[item_ids].values})
-            return item_map
-
-        self.df = pd.merge(self.df, self.item_map, on=self.item_key, how='inner')
-
-    @property
-    def items(self):
-        return self.item_map.ItemId.unique()
 
 
 class SessionDataLoader:

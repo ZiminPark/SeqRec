@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import datetime as dt
 
-PATH_TO_ORIGINAL_DATA = 'D:\\data\\yoochoose-data\\'
-PATH_TO_PROCESSED_DATA = 'D:\\data\\yoochoose-data\\'
+PATH_TO_ORIGINAL_DATA = '/Users/zimin/Downloads/archive/'  # 'D:\\data\\yoochoose-data\\'
+PATH_TO_PROCESSED_DATA = '/Users/zimin/Downloads/archive/'  # 'D:\\data\\yoochoose-data\\'
 
 data = pd.read_csv(PATH_TO_ORIGINAL_DATA + 'yoochoose-clicks.dat', sep=',', header=None, usecols=[0, 1, 2],
                    parse_dates=[1],
@@ -38,3 +38,20 @@ train.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_full.txt', sep='\t', index=Fa
 
 print(f'Test set\n\tEvents: {len(test)}\n\tSessions: {test.SessionId.nunique()}\n\tItems: {test.ItemId.nunique()}')
 test.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_test.txt', sep='\t', index=False)
+
+max_train_time = train.Time.max()
+session_max_times = train.groupby('SessionId').Time.max()
+session_train = session_max_times[session_max_times < max_train_time - dt.timedelta(1)].index
+session_valid = session_max_times[session_max_times >= max_train_time - dt.timedelta(1)].index
+train_tr = train[np.in1d(train.SessionId, session_train)]
+valid = train[np.in1d(train.SessionId, session_valid)]
+valid = valid[np.in1d(valid.ItemId, train_tr.ItemId)]
+valid_length = valid.groupby('SessionId').size()
+valid = valid[np.in1d(valid.SessionId, valid_length[valid_length >= 2].index)]
+print(
+    f'Train set\n\tEvents: {len(train_tr)}\n\tSessions: {train_tr.SessionId.nunique()}\n\tItems: {train_tr.ItemId.nunique()}')
+train_tr.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_tr.txt', sep='\t', index=False)
+
+print(
+    f'Validation set\n\tEvents: {len(valid)}\n\tSessions: {valid.SessionId.nunique()}\n\tItems: {valid.ItemId.nunique()}')
+valid.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_valid.txt', sep='\t', index=False)
