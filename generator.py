@@ -3,13 +3,11 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-import keras
-import keras.backend as K
-from keras.models import Model
-from keras.utils import to_categorical
-from keras.callbacks import ModelCheckpoint
-from keras.losses import categorical_crossentropy
-from keras.layers import Input, Dense, Dropout, GRU
+from tensorflow.keras.models import Model
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.losses import categorical_crossentropy
+from tensorflow.keras.layers import Input, Dense, Dropout, GRU
 
 
 class SessionDataset:
