@@ -21,21 +21,20 @@ def create_model(args):
 
 
 def train_model(model, args):
+    train_dataset = SessionDataset(args.train_data)
+    train_loader = SessionDataLoader(train_dataset, batch_size=args.batch_size)
+
     for epoch in range(1, args.epochs + 1):
-        with tqdm(total=args.train_samples_qty) as pbar:
-            train_dataset = SessionDataset(args.train_data)
-            loader = SessionDataLoader(train_dataset, batch_size=args.batch_size)
-            for feat, target, mask in loader:
-                reset_hidden_states(model, mask)
+        loader = tqdm(train_loader, total=args.train_samples_qty)
+        for i, (feat, target, mask) in enumerate(loader):
+            reset_hidden_states(model, mask)
 
-                input_ohe = to_categorical(feat, num_classes=loader.n_items)
-                input_ohe = np.expand_dims(input_ohe, axis=1)
-                target_ohe = to_categorical(target, num_classes=loader.n_items)
+            input_ohe = to_categorical(feat, num_classes=train_loader.n_items)
+            input_ohe = np.expand_dims(input_ohe, axis=1)
+            target_ohe = to_categorical(target, num_classes=train_loader.n_items)
 
-                tr_loss = model.train_on_batch(input_ohe, target_ohe)
-
-                pbar.set_description(f'Epoch {epoch}. Loss: {tr_loss:.5f}')  # todo update this
-                pbar.update(loader.done_sessions_counter)
+            tr_loss = model.train_on_batch(input_ohe, target_ohe)
+            loader.set_postfix(train_loss=tr_loss)
 
         (recall, recall_k), (mrr, mrr_k) = get_metrics(model, args, train_dataset.itemmap)
         print(f"\t - Recall@{recall_k} epoch {epoch}: {recall:5f}")
