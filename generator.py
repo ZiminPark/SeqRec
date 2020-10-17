@@ -1,18 +1,10 @@
 import numpy as np
-import pandas as pd
 
 
 class SessionDataset:
     """Credit to yhs-968/pyGRU4REC."""
 
     def __init__(self, data, session_key='SessionId', item_key='ItemId', time_key='Time'):
-        """
-        Args:
-            path: path of the csv file
-            sep: separator for the csv
-            session_key, item_key, time_key: name of the fields corresponding to the sessions, items, time
-            time_sort: whether to sort the sessions by time or not
-        """
         self.df = data
         self.session_key = session_key
         self.item_key = item_key
@@ -25,12 +17,12 @@ class SessionDataset:
 
     def add_item_indices(self):
         idx2id = {index: item_id for item_id, index in enumerate(self.df['ItemId'].unique())}
-        self.df['item_index'] = self.df['ItemId'].map(idx2id.get)
+        self.df['item_idx'] = self.df['ItemId'].map(idx2id.get)
         return idx2id
 
     @property
     def items(self):
-        return self.item_map.ItemId.unique()
+        return self.df['ItemId'].unique()
 
     def get_click_offsets(self):
         """
@@ -58,7 +50,7 @@ class SessionDataLoader:
         self.batch_size = batch_size
         self.done_sessions_counter = 0
 
-    def __iter__(self):
+    def __iter__(self):  # https://dojang.io/mod/page/view.php?id=2405
         """ Returns the iterator for producing session-parallel training mini-batches.
         Yields:
             input (B,):  Item indices that will be encoded as one-hot vectors later.
@@ -67,43 +59,38 @@ class SessionDataLoader:
         """
 
         df = self.dataset.df
-        session_key = 'SessionId'
-        item_key = 'ItemId'
-        time_key = 'TimeStamp'
-        self.n_items = df[item_key].nunique() + 1
+        self.n_items = df['ItemId'].nunique() + 1
         click_offsets = self.dataset.click_offsets
         session_idx_arr = self.dataset.session_idx_arr
 
         iters = np.arange(self.batch_size)
-        maxiter = iters.max()
-        start = click_offsets[session_idx_arr[iters]]
-        end = click_offsets[session_idx_arr[iters] + 1]
+        max_iter = iters.max()
+        start = click_offsets[session_idx_arr[iters]]  # Session Start
+        end = click_offsets[session_idx_arr[iters] + 1]  # Session End
         mask = []  # indicator for the sessions to be terminated
         finished = False
 
         while not finished:
-            minlen = (end - start).min()
+            min_len = (end - start).min()  # Shortest Session
             # Item indices (for embedding) for clicks where the first sessions start
-            idx_target = df.item_idx.values[start]
-            for i in range(minlen - 1):
+            idx_start = df.item_idx.values[start]
+            for i in range(min_len - 1):
                 # Build inputs & targets
-                idx_input = idx_target
-                idx_target = df.item_idx.values[start + i + 1]
-                inp = idx_input
-                target = idx_target
+                inp = idx_start
+                target = df.item_idx.values[start + i + 1]
                 yield inp, target, mask
 
             # click indices where a particular session meets second-to-last element
-            start = start + (minlen - 1)
+            start = start + (min_len - 1)
             # see if how many sessions should terminate
             mask = np.arange(len(iters))[(end - start) <= 1]
             self.done_sessions_counter = len(mask)
             for idx in mask:
-                maxiter += 1
-                if maxiter >= len(click_offsets) - 1:
+                max_iter += 1
+                if max_iter >= len(click_offsets) - 1:
                     finished = True
                     break
                 # update the next starting/ending point
-                iters[idx] = maxiter
-                start[idx] = click_offsets[session_idx_arr[maxiter]]
-                end[idx] = click_offsets[session_idx_arr[maxiter] + 1]
+                iters[idx] = max_iter
+                start[idx] = click_offsets[session_idx_arr[max_iter]]
+                end[idx] = click_offsets[session_idx_arr[max_iter] + 1]
