@@ -2,32 +2,46 @@ import numpy as np
 import pandas as pd
 import datetime as dt
 
-PATH_TO_ORIGINAL_DATA = '/Users/zimin/Downloads/archive/'  # 'D:\\data\\yoochoose-data\\'
-PATH_TO_PROCESSED_DATA = '/Users/zimin/Downloads/archive/'  # 'D:\\data\\yoochoose-data\\'
+from pathlib import Path
 
-data = pd.read_csv(PATH_TO_ORIGINAL_DATA + 'yoochoose-clicks.dat', sep=',', header=None, usecols=[0, 1, 2],
-                   parse_dates=[1],
-                   dtype={0: np.int32, 2: np.int32}, nrows=100000)
-data.columns = ['SessionId', 'Time', 'ItemId']
 
-session_lengths = data.groupby('SessionId').size()
-data = data[np.in1d(data.SessionId, session_lengths[session_lengths > 1].index)]
+def load_data(data_path: Path, nrows=None):
+    data = pd.read_csv(data_path / 'yoochoose-clicks.dat', sep=',', header=None, usecols=[0, 1, 2],
+                       parse_dates=[1], dtype={0: np.int32, 2: np.int32}, nrows=nrows)
+    data.columns = ['SessionId', 'Time', 'ItemId']
+    return data
 
-item_supports = data.groupby('ItemId').size()
-data = data[np.in1d(data.ItemId, item_supports[item_supports >= 5].index)]
 
-session_lengths = data.groupby('SessionId').size()
-data = data[np.in1d(data.SessionId, session_lengths[session_lengths >= 2].index)]
+def cleanse_minor(data: pd.DataFrame, shortest=2, least_click=5) -> pd.DataFrame:
+    while True:
+        before_len = len(data)
 
-max_time = data['Time'].max()
-session_max_times = data.groupby('SessionId')['Time'].max()
-session_train = session_max_times[session_max_times < max_time - dt.timedelta(1)].index
-session_test = session_max_times[session_max_times >= max_time - dt.timedelta(1)].index
+        session_len = data.groupby('SessionId').size()
+        # noinspection PyTypeChecker
+        session_use = session_len[session_len >= shortest].index
+        data = data[data['SessionId'].isin(session_use)]
 
-train = data[np.in1d(data.SessionId, session_train)]
-test = data[np.in1d(data.SessionId, session_test)]
+        item_popular = data.groupby('ItemId').size()
+        item_use = item_popular[item_popular >= least_click].index
+        data = data[data['ItemId'].isin(item_use)]
 
-test = test[np.in1d(test.ItemId, train.ItemId)]
+        after_len = len(data)
+        if before_len == after_len:
+            break
+    return data
+
+
+def split_by_date(data: pd.DataFrame, n_days: int):
+    final_time = data['Time'].max()
+    session_last_time = data.groupby('SessionId')['Time'].max()
+    session_in_train = session_last_time[session_last_time < final_time - dt.timedelta(n_days)].index
+    session_in_test = session_last_time[session_last_time >= final_time - dt.timedelta(n_days)].index
+
+    before_date = data[data['SessionId'].isin(session_in_train)]
+    after_date = data[data['SessionId'].isin(session_in_test)]
+    after_date = after_date[after_date['ItemId'].isin(before_date['ItemId'])]
+    return before_date, after_date
+
 
 test_length = test.groupby('SessionId').size()
 test = test[np.in1d(test.SessionId, test_length[test_length >= 2].index)]
