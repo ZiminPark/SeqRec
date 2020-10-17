@@ -20,13 +20,13 @@ def create_model(args):
     return model
 
 
-def train_model(model, args):
-    train_dataset = SessionDataset(args.train_data)
+def train_model(model, args, train, valid, test):
+    train_dataset = SessionDataset(train)
     train_loader = SessionDataLoader(train_dataset, batch_size=args.batch_size)
 
     for epoch in range(1, args.epochs + 1):
-        loader = tqdm(train_loader, total=args.train_samples_qty)
-        for i, (feat, target, mask) in enumerate(loader):
+        tr_loader = tqdm(train_loader, total=args.train_samples_qty)
+        for i, (feat, target, mask) in enumerate(tr_loader):
             reset_hidden_states(model, mask)
 
             input_ohe = to_categorical(feat, num_classes=train_loader.n_items)
@@ -34,11 +34,18 @@ def train_model(model, args):
             target_ohe = to_categorical(target, num_classes=train_loader.n_items)
 
             tr_loss = model.train_on_batch(input_ohe, target_ohe)
-            loader.set_postfix(train_loss=tr_loss)
+            tr_loader.set_postfix(train_loss=tr_loss)
 
-        (recall, recall_k), (mrr, mrr_k) = get_metrics(model, args, train_dataset.itemmap)
-        print(f"\t - Recall@{recall_k} epoch {epoch}: {recall:5f}")
-        print(f"\t - MRR@{mrr_k}    epoch {epoch}: {mrr:5f}\n")
+        val_recall, val_mrr = get_metrics(valid, model, args, 20)
+
+        print(f"\t - Recall@{recall_k} epoch {epoch}: {val_recall:3f}")
+        print(f"\t - MRR@{mrr_k}    epoch {epoch}: {val_mrr:3f}\n")
+
+
+def test_model(model, args, test):
+    test_recall, test_mrr = get_metrics(test, model, args, 20)
+    print(f"\t - Recall@{recall_k}: {test_recall:3f}")
+    print(f"\t - MRR@{mrr_k}: {test_mrr:3f}\n")
 
 
 def reset_hidden_states(model, mask):
@@ -49,39 +56,36 @@ def reset_hidden_states(model, mask):
     gru_layer.reset_states(states=hidden_states)
 
 
-def get_metrics(model, args, train_generator_map, recall_k=20, mrr_k=20):
-    test_dataset = SessionDataset(args.test_data, itemmap=train_generator_map)
-    test_generator = SessionDataLoader(test_dataset, batch_size=args.batch_size)
-
-    n = 0
-    rec_sum = 0
-    mrr_sum = 0
+def get_metrics(data, model, args, k: int):
+    dataset = SessionDataset(data)
+    loader = SessionDataLoader(dataset, batch_size=args.batch_size)
 
     print("Evaluating model...")
-    for feat, label, mask in test_generator:
+    recall_list = []
+    mrr_list = []
 
-        target_oh = to_categorical(label, num_classes=args.train_n_items)
-        input_oh = to_categorical(feat, num_classes=args.train_n_items)
-        input_oh = np.expand_dims(input_oh, axis=1)
+    for inputs, label, mask in loader:
 
-        pred = model.predict(input_oh, batch_size=args.batch_size)
+        input_ohe = to_categorical(inputs, num_classes=args.train_n_items)
+        input_ohe = np.expand_dims(input_ohe, axis=1)
 
-        for row_idx in range(feat.shape[0]):
+        pred = model.predict(input_ohe, batch_size=args.batch_size)
+
+        for row_idx in range(inputs.shape[0]):
             pred_row = pred[row_idx]
-            label_row = target_oh[row_idx]
+            recall_list.append(recall_k(pred_row, label, k))
+            mrr_list.append(mrr_k(pred_row, label, k))
 
-            rec_idx = pred_row.argsort()[-recall_k:][::-1]
-            mrr_idx = pred_row.argsort()[-mrr_k:][::-1]
-            tru_idx = label_row.argsort()[-1:][::-1]
+    recall = np.mean(recall_list)
+    mrr = np.mean(mrr_list)
+    return recall, mrr
 
-            n += 1
 
-            if tru_idx[0] in rec_idx:
-                rec_sum += 1
+def mrr_k(pred, truth: int, k: int):
+    rank = np.where(pred[:k] == truth)[0] + 1
+    return 1 / rank
 
-            if tru_idx[0] in mrr_idx:
-                mrr_sum += 1 / int((np.where(mrr_idx == tru_idx[0])[0] + 1))
 
-    recall = rec_sum / n
-    mrr = mrr_sum / n
-    return (recall, recall_k), (mrr, mrr_k)
+def recall_k(pred, truth: int, k: int) -> int:
+    answer = truth in pred[:k]
+    return int(answer)
