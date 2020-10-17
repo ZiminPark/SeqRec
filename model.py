@@ -62,8 +62,7 @@ def get_metrics(data, model, args, k: int):
     loader = SessionDataLoader(dataset, batch_size=args.batch_size)
 
     print("Evaluating model...")
-    recall_list = []
-    mrr_list = []
+    recall_list, mrr_list = [], []
 
     for inputs, label, mask in tqdm(loader, total=len(data) // args.batch_size):
 
@@ -74,11 +73,10 @@ def get_metrics(data, model, args, k: int):
         pred_arg = tf.argsort(pred, direction='DESCENDING')
 
         length = len(inputs)
-        recall_list = [recall_k(pred_arg[i], label[i], k) for i in range(length)]
-        mrr_list = [mrr_k(pred_arg[i], label[i], k) for i in range(length)]
+        recall_list.extend([recall_k(pred_arg[i], label[i], k) for i in range(length)])
+        mrr_list.extend([mrr_k(pred_arg[i], label[i], k) for i in range(length)])
 
-    recall = np.mean(recall_list)
-    mrr = np.mean(mrr_list)
+    recall, mrr = np.mean(recall_list), np.mean(mrr_list)
     return recall, mrr
 
 
