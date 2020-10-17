@@ -1,57 +1,95 @@
 import numpy as np
-import pandas as pd
-import datetime as dt
 
-PATH_TO_ORIGINAL_DATA = '/Users/zimin/Downloads/archive/'  # 'D:\\data\\yoochoose-data\\'
-PATH_TO_PROCESSED_DATA = '/Users/zimin/Downloads/archive/'  # 'D:\\data\\yoochoose-data\\'
 
-data = pd.read_csv(PATH_TO_ORIGINAL_DATA + 'yoochoose-clicks.dat', sep=',', header=None, usecols=[0, 1, 2],
-                   parse_dates=[1],
-                   dtype={0: np.int32, 2: np.int32}, nrows=100000)
-data.columns = ['SessionId', 'Time', 'ItemId']
+class SessionDataset:
+    """Credit to yhs-968/pyGRU4REC."""
 
-session_lengths = data.groupby('SessionId').size()
-data = data[np.in1d(data.SessionId, session_lengths[session_lengths > 1].index)]
+    def __init__(self, data, session_key='SessionId', item_key='ItemId', time_key='Time'):
+        self.df = data
+        self.session_key = session_key
+        self.item_key = item_key
+        self.time_key = time_key
+        self.idx2id = self.add_item_indices()
+        self.df.sort_values([session_key, time_key], inplace=True)
+        # clicks within a session are next to each other, where the clicks within a session are time-ordered.
+        self.click_offsets = self.get_click_offsets()
+        self.session_idx_arr = np.arange(self.df[self.session_key].nunique())  # indexing to SessionId
 
-item_supports = data.groupby('ItemId').size()
-data = data[np.in1d(data.ItemId, item_supports[item_supports >= 5].index)]
+    def add_item_indices(self):
+        idx2id = {index: item_id for item_id, index in enumerate(self.df['ItemId'].unique())}
+        self.df['item_idx'] = self.df['ItemId'].map(idx2id.get)
+        return idx2id
 
-session_lengths = data.groupby('SessionId').size()
-data = data[np.in1d(data.SessionId, session_lengths[session_lengths >= 2].index)]
+    @property
+    def items(self):
+        return self.df['ItemId'].unique()
 
-max_time = data['Time'].max()
-session_max_times = data.groupby('SessionId')['Time'].max()
-session_train = session_max_times[session_max_times < max_time - dt.timedelta(1)].index
-session_test = session_max_times[session_max_times >= max_time - dt.timedelta(1)].index
+    def get_click_offsets(self):
+        """
+        Return the offsets of the beginning clicks of each session IDs,
+        where the offset is calculated against the first click of the first session ID.
+        """
+        offsets = np.zeros(self.df[self.session_key].nunique() + 1, dtype=np.int32)
+        # group & sort the df by session_key and get the offset values
+        offsets[1:] = self.df.groupby(self.session_key).size().cumsum()
 
-train = data[np.in1d(data.SessionId, session_train)]
-test = data[np.in1d(data.SessionId, session_test)]
+        return offsets
 
-test = test[np.in1d(test.ItemId, train.ItemId)]
 
-test_length = test.groupby('SessionId').size()
-test = test[np.in1d(test.SessionId, test_length[test_length >= 2].index)]
+class SessionDataLoader:
+    """Credit to yhs-968/pyGRU4REC."""
 
-print(
-    f'Full train set\n\tEvents: {len(train)}\n\tSessions: {train.SessionId.nunique()}\n\tItems: {train.ItemId.nunique()}')
-train.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_full.txt', sep='\t', index=False)
+    def __init__(self, dataset, batch_size=50):
+        """
+        A class for creating session-parallel mini-batches.
+        Args:
+            dataset (SessionDataset): the session dataset to generate the batches from
+            batch_size (int): size of the batch
+        """
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.done_sessions_counter = 0
 
-print(f'Test set\n\tEvents: {len(test)}\n\tSessions: {test.SessionId.nunique()}\n\tItems: {test.ItemId.nunique()}')
-test.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_test.txt', sep='\t', index=False)
+    def __iter__(self):  # https://dojang.io/mod/page/view.php?id=2405
+        """ Returns the iterator for producing session-parallel training mini-batches.
+        Yields:
+            input (B,):  Item indices that will be encoded as one-hot vectors later.
+            target (B,): a Variable that stores the target item indices
+            masks: Numpy array indicating the positions of the sessions to be terminated
+        """
 
-max_train_time = train.Time.max()
-session_max_times = train.groupby('SessionId').Time.max()
-session_train = session_max_times[session_max_times < max_train_time - dt.timedelta(1)].index
-session_valid = session_max_times[session_max_times >= max_train_time - dt.timedelta(1)].index
-train_tr = train[np.in1d(train.SessionId, session_train)]
-valid = train[np.in1d(train.SessionId, session_valid)]
-valid = valid[np.in1d(valid.ItemId, train_tr.ItemId)]
-valid_length = valid.groupby('SessionId').size()
-valid = valid[np.in1d(valid.SessionId, valid_length[valid_length >= 2].index)]
-print(
-    f'Train set\n\tEvents: {len(train_tr)}\n\tSessions: {train_tr.SessionId.nunique()}\n\tItems: {train_tr.ItemId.nunique()}')
-train_tr.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_tr.txt', sep='\t', index=False)
+        df = self.dataset.df
+        self.n_items = df['ItemId'].nunique() + 1
+        click_offsets = self.dataset.click_offsets
+        session_idx_arr = self.dataset.session_idx_arr
 
-print(
-    f'Validation set\n\tEvents: {len(valid)}\n\tSessions: {valid.SessionId.nunique()}\n\tItems: {valid.ItemId.nunique()}')
-valid.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_valid.txt', sep='\t', index=False)
+        iters = np.arange(self.batch_size)
+        max_iter = iters.max()
+        start = click_offsets[session_idx_arr[iters]]  # Session Start
+        end = click_offsets[session_idx_arr[iters] + 1]  # Session End
+        mask = []  # indicator for the sessions to be terminated
+        finished = False
+
+        while not finished:
+            min_len = (end - start).min()  # Shortest Session
+            # Item indices (for embedding) for clicks where the first sessions start
+            for i in range(min_len - 1):
+                # Build inputs & targets
+                inp = df.item_idx.values[start + i]
+                target = df.item_idx.values[start + i + 1]
+                yield inp, target, mask
+
+            # click indices where a particular session meets second-to-last element
+            start = start + (min_len - 1)
+            # see if how many sessions should terminate
+            mask = np.arange(len(iters))[(end - start) <= 1]
+            self.done_sessions_counter = len(mask)
+            for idx in mask:
+                max_iter += 1
+                if max_iter >= len(click_offsets) - 1:
+                    finished = True
+                    break
+                # update the next starting/ending point
+                iters[idx] = max_iter
+                start[idx] = click_offsets[session_idx_arr[max_iter]]
+                end[idx] = click_offsets[session_idx_arr[max_iter] + 1]
