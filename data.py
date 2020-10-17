@@ -34,11 +34,6 @@ class SessionDataLoader:
     def __init__(self, dataset: SessionDataset, batch_size=50):
         self.dataset = dataset
         self.batch_size = batch_size
-        self.n_items = dataset.df['ItemId'].nunique() + 1
-        self.click_offsets = self.dataset.click_offsets
-        self.session_idx_arr = self.dataset.session_idx_arr
-        self.done_sessions_counter = 0
-        self.max_iter = 0
 
     def __iter__(self):
         """ Returns the iterator for producing session-parallel training mini-batches.
@@ -48,38 +43,44 @@ class SessionDataLoader:
             masks: Numpy array indicating the positions of the sessions to be terminated
         """
 
-        df = self.dataset.df
-        iters = np.arange(self.batch_size)
-        max_iter = iters.max()
-        start = self.click_offsets[self.session_idx_arr[iters]]  # Session Start
-        end = self.click_offsets[self.session_idx_arr[iters] + 1]  # Session End
-        mask = []  # indicator for the sessions to be terminated
-        finished = False
+        start, end, mask, last_session, finished = self.initialize()
+        """
+        start : Index Where Session Start
+        end : Index Where Session End
+        mask : indicator for the sessions to be terminated
+        """
 
         while not finished:
-            min_len = (end - start).min()  # Shortest Session
-            # Item indices (for embedding) for clicks where the first sessions start
-            for i in range(min_len - 1):
+            min_len = (end - start).min() - 1  # Shortest Length Among Sessions
+            for i in range(min_len):
                 # Build inputs & targets
-                inp = df['item_idx'].values[start + i]
-                target = df['item_idx'].values[start + i + 1]
+                inp = self.dataset.df['item_idx'].values[start + i]
+                target = self.dataset.df['item_idx'].values[start + i + 1]
                 yield inp, target, mask
 
-            start, end, mask, max_iter, finished = self.update_status(start, end, min_len, max_iter, finished)
+            start, end, mask, last_session, finished = self.update_status(start, end, min_len, last_session, finished)
 
-    def update_status(self, start, end, min_len, max_iter, finished):
-        # click indices where a particular session meets second-to-last element
-        start = start + (min_len - 1)
-        # see if how many sessions should terminate
-        mask = np.arange(self.batch_size)[(end - start) <= 1]
-        self.done_sessions_counter = len(mask)
-        for idx in mask:
-            max_iter += 1
-            if max_iter >= len(self.click_offsets) - 1:
-                self.max_iter = max_iter
+    def initialize(self):
+        first_iters = np.arange(self.batch_size)
+        last_session = first_iters[-1]
+        start = self.dataset.click_offsets[self.dataset.session_idx_arr[first_iters]]
+        end = self.dataset.click_offsets[self.dataset.session_idx_arr[first_iters] + 1]
+        mask = []
+        finished = False
+        return start, end, mask, last_session, finished
+
+    def update_status(self, start, end, min_len, last_session, finished):
+        start += min_len
+        mask = np.arange(self.batch_size)[(end - start) == 1]
+
+        for i, idx in enumerate(mask, start=1):
+            new_session = last_session + i
+            if new_session > self.dataset.session_idx_arr[-1]:
                 finished = True
                 break
             # update the next starting/ending point
-            start[idx] = self.click_offsets[self.session_idx_arr[max_iter]]
-            end[idx] = self.click_offsets[self.session_idx_arr[max_iter] + 1]
-        return start, end, mask, max_iter, finished
+            start[idx] = self.dataset.click_offsets[self.dataset.session_idx_arr[new_session]]
+            end[idx] = self.dataset.click_offsets[self.dataset.session_idx_arr[new_session] + 1]
+
+        last_session += len(mask)
+        return start, end, mask, last_session, finished

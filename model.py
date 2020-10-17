@@ -13,7 +13,7 @@ from evaluate import mrr_k, recall_k
 
 def create_model(args):
     inputs = Input(batch_shape=(args.batch_size, 1, args.num_items))
-    gru, gru_states = GRU(args.hsz, stateful=True, return_state=True, name='GRU')(inputs)
+    gru, _ = GRU(args.hsz, stateful=True, return_state=True, name='GRU')(inputs)
     dropout = Dropout(args.drop_rate)(gru)
     predictions = Dense(args.num_items, activation='softmax')(dropout)
     model = Model(inputs=inputs, outputs=[predictions])
@@ -22,23 +22,24 @@ def create_model(args):
     return model
 
 
-def train_model(model, args, train, valid):
-    train_dataset = SessionDataset(train)
+def train_model(model, args):
+    train_dataset = SessionDataset(args.tr)
     train_loader = SessionDataLoader(train_dataset, batch_size=args.batch_size)
 
     for epoch in range(1, args.epochs + 1):
-        tr_loader = tqdm(train_loader, total=len(train)//args.batch_size, desc='Train', mininterval=1)
-        for i, (feat, target, mask) in enumerate(tr_loader):
+        total_step = len(args.tr) - args.tr['SessionId'].nunique()
+        tr_loader = tqdm(train_loader, total=total_step // args.batch_size, desc='Train', mininterval=1)
+        for feat, target, mask in tr_loader:
             reset_hidden_states(model, mask)
 
-            input_ohe = to_categorical(feat, num_classes=train_loader.n_items)
+            input_ohe = to_categorical(feat, num_classes=args.num_items)
             input_ohe = np.expand_dims(input_ohe, axis=1)
-            target_ohe = to_categorical(target, num_classes=train_loader.n_items)
+            target_ohe = to_categorical(target, num_classes=args.num_items)
 
             tr_loss = model.train_on_batch(input_ohe, target_ohe)
             tr_loader.set_postfix(train_loss=tr_loss)
 
-        val_recall, val_mrr = get_metrics(valid, model, args, args.k)
+        val_recall, val_mrr = get_metrics(args.val, model, args, args.k)
 
         print(f"\t - Recall@{args.k} epoch {epoch}: {val_recall:3f}")
         print(f"\t - MRR@{args.k}    epoch {epoch}: {val_mrr:3f}\n")
@@ -57,7 +58,8 @@ def get_metrics(data, model, args, k: int):
     loader = SessionDataLoader(dataset, batch_size=args.batch_size)
     recall_list, mrr_list = [], []
 
-    for inputs, label, mask in tqdm(loader, total=len(data) // args.batch_size, desc='Evaluation', mininterval=1):
+    total_step = len(data) - data['SessionId'].nunique()
+    for inputs, label, mask in tqdm(loader, total=total_step // args.batch_size, desc='Evaluation', mininterval=1):
         input_ohe = to_categorical(inputs, num_classes=args.num_items)
         input_ohe = np.expand_dims(input_ohe, axis=1)
 
