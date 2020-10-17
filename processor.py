@@ -1,8 +1,8 @@
+import datetime as dt
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-import datetime as dt
-
-from pathlib import Path
 
 
 def load_data(data_path: Path, nrows=None):
@@ -15,19 +15,25 @@ def load_data(data_path: Path, nrows=None):
 def cleanse_minor(data: pd.DataFrame, shortest=2, least_click=5) -> pd.DataFrame:
     while True:
         before_len = len(data)
-
-        session_len = data.groupby('SessionId').size()
-        # noinspection PyTypeChecker
-        session_use = session_len[session_len >= shortest].index
-        data = data[data['SessionId'].isin(session_use)]
-
-        item_popular = data.groupby('ItemId').size()
-        item_use = item_popular[item_popular >= least_click].index
-        data = data[data['ItemId'].isin(item_use)]
-
+        data = cleanse_short_session(data, shortest)
+        data = cleanse_unpopular_item(data, least_click)
         after_len = len(data)
         if before_len == after_len:
             break
+    return data
+
+
+def cleanse_short_session(data: pd.DataFrame, shortest=2):
+    session_len = data.groupby('SessionId').size()
+    session_use = session_len[session_len >= shortest].index
+    data = data[data['SessionId'].isin(session_use)]
+    return data
+
+
+def cleanse_unpopular_item(data: pd.DataFrame, least_click=5):
+    item_popular = data.groupby('ItemId').size()
+    item_use = item_popular[item_popular >= least_click].index
+    data = data[data['ItemId'].isin(item_use)]
     return data
 
 
@@ -43,29 +49,9 @@ def split_by_date(data: pd.DataFrame, n_days: int):
     return before_date, after_date
 
 
-test_length = test.groupby('SessionId').size()
-test = test[np.in1d(test.SessionId, test_length[test_length >= 2].index)]
-
-print(
-    f'Full train set\n\tEvents: {len(train)}\n\tSessions: {train.SessionId.nunique()}\n\tItems: {train.ItemId.nunique()}')
-train.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_full.txt', sep='\t', index=False)
-
-print(f'Test set\n\tEvents: {len(test)}\n\tSessions: {test.SessionId.nunique()}\n\tItems: {test.ItemId.nunique()}')
-test.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_test.txt', sep='\t', index=False)
-
-max_train_time = train.Time.max()
-session_max_times = train.groupby('SessionId').Time.max()
-session_train = session_max_times[session_max_times < max_train_time - dt.timedelta(1)].index
-session_valid = session_max_times[session_max_times >= max_train_time - dt.timedelta(1)].index
-train_tr = train[np.in1d(train.SessionId, session_train)]
-valid = train[np.in1d(train.SessionId, session_valid)]
-valid = valid[np.in1d(valid.ItemId, train_tr.ItemId)]
-valid_length = valid.groupby('SessionId').size()
-valid = valid[np.in1d(valid.SessionId, valid_length[valid_length >= 2].index)]
-print(
-    f'Train set\n\tEvents: {len(train_tr)}\n\tSessions: {train_tr.SessionId.nunique()}\n\tItems: {train_tr.ItemId.nunique()}')
-train_tr.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_tr.txt', sep='\t', index=False)
-
-print(
-    f'Validation set\n\tEvents: {len(valid)}\n\tSessions: {valid.SessionId.nunique()}\n\tItems: {valid.ItemId.nunique()}')
-valid.to_csv(PATH_TO_PROCESSED_DATA + 'rsc15_train_valid.txt', sep='\t', index=False)
+def stats_info(data: pd.DataFrame, status: str):
+    print(f'* {status} Set Stats Info\n'
+          f'\tEvents: {len(data)}\n'
+          f'\tSessions: {data["SessionId"].nunique()}\n'
+          f'\tItems: {data["ItemId"].nunique()}\n'
+          f'\tLast Time : {data["Time"].max()}\n')
