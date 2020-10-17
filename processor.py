@@ -12,7 +12,7 @@ def load_data(data_path: Path, nrows=None):
     return data
 
 
-def cleanse_minor(data: pd.DataFrame, shortest=2, least_click=5) -> pd.DataFrame:
+def cleanse_recursive(data: pd.DataFrame, shortest=2, least_click=5) -> pd.DataFrame:
     while True:
         before_len = len(data)
         data = cleanse_short_session(data, shortest)

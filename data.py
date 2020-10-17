@@ -9,30 +9,22 @@ class SessionDataset:
         self.session_key = session_key
         self.item_key = item_key
         self.time_key = time_key
-        self.idx2id = self.add_item_indices()
+        self.idx2id = self.get_vocab()
+        self.df['item_idx'] = self.df['ItemId'].map(self.idx2id.get)
+
         self.df.sort_values([session_key, time_key], inplace=True)
-        # clicks within a session are next to each other, where the clicks within a session are time-ordered.
         self.click_offsets = self.get_click_offsets()
         self.session_idx_arr = np.arange(self.df[self.session_key].nunique())  # indexing to SessionId
 
-    def add_item_indices(self):
-        idx2id = {index: item_id for item_id, index in enumerate(self.df['ItemId'].unique())}
-        self.df['item_idx'] = self.df['ItemId'].map(idx2id.get)
-        return idx2id
-
-    @property
-    def items(self):
-        return self.df['ItemId'].unique()
+    def get_vocab(self):
+        return {index: item_id for item_id, index in enumerate(self.df['ItemId'].unique())}
 
     def get_click_offsets(self):
         """
-        Return the offsets of the beginning clicks of each session IDs,
-        where the offset is calculated against the first click of the first session ID.
+        Return the indexes of the first click of each session IDs,
         """
         offsets = np.zeros(self.df[self.session_key].nunique() + 1, dtype=np.int32)
-        # group & sort the df by session_key and get the offset values
         offsets[1:] = self.df.groupby(self.session_key).size().cumsum()
-
         return offsets
 
 
