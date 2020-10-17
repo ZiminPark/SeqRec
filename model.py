@@ -11,30 +11,25 @@ from data import SessionDataset, SessionDataLoader
 
 
 def create_model(args):
-    hsz = args.hsz
-    dropout = args.dropout
-
-    inputs = Input(batch_shape=(args.batch_size, 1, args.train_n_items))
-    gru, gru_states = GRU(hsz, stateful=True, return_state=True, name='GRU')(inputs)
-    drop2 = Dropout(dropout)(gru)
-    predictions = Dense(args.train_n_items, activation='softmax')(drop2)
+    inputs = Input(batch_shape=(args.batch_size, 1, args.num_items))
+    gru, gru_states = GRU(args.hsz, stateful=True, return_state=True, name='GRU')(inputs)
+    dropout = Dropout(args.drop_rate)(gru)
+    predictions = Dense(args.num_items, activation='softmax')(dropout)
     model = Model(inputs=inputs, outputs=[predictions])
-    model.compile(loss=categorical_crossentropy, optimizer=Adam)
+    model.compile(loss=categorical_crossentropy, optimizer=Adam(args.lr))
     model.summary()
     return model
 
 
 def train_model(model, args):
     train_dataset = SessionDataset(args.train_data)
-    model_to_train = model
-    batch_size = args.batch_size
 
     for epoch in range(1, args.epochs):
         with tqdm(total=args.train_samples_qty) as pbar:
-            loader = SessionDataLoader(train_dataset, batch_size=batch_size)
+            loader = SessionDataLoader(train_dataset, batch_size=args.batch_size)
             for feat, target, mask in loader:
 
-                gru_layer = model_to_train.get_layer(name="GRU")
+                gru_layer = model.get_layer(name="GRU")
                 hidden_states = gru_layer.states[0].numpy()
                 for elt in mask:
                     hidden_states[elt, :] = 0
@@ -45,22 +40,15 @@ def train_model(model, args):
 
                 target_oh = to_categorical(target, num_classes=loader.n_items)
 
-                tr_loss = model_to_train.train_on_batch(input_oh, target_oh)
+                tr_loss = model.train_on_batch(input_oh, target_oh)
 
                 pbar.set_description("Epoch {0}. Loss: {1:.5f}".format(epoch, tr_loss))
                 pbar.update(loader.done_sessions_counter)
 
-        if args.save_weights:
-            print("Saving weights...")
-            model_to_train.save('./GRU4REC_{}.h5'.format(epoch))
+        print("Saving weights...")
+        model.save('./GRU4REC_{}.h5'.format(epoch))
 
-        if args.eval_all_epochs:
-            (rec, rec_k), (mrr, mrr_k) = get_metrics(model_to_train, args, train_dataset.itemmap)
-            print("\t - Recall@{} epoch {}: {:5f}".format(rec_k, epoch, rec))
-            print("\t - MRR@{}    epoch {}: {:5f}\n".format(mrr_k, epoch, mrr))
-
-    if not args.eval_all_epochs:
-        (rec, rec_k), (mrr, mrr_k) = get_metrics(model_to_train, args, train_dataset.itemmap)
+        (rec, rec_k), (mrr, mrr_k) = get_metrics(model, args, train_dataset.itemmap)
         print("\t - Recall@{} epoch {}: {:5f}".format(rec_k, epoch, rec))
         print("\t - MRR@{}    epoch {}: {:5f}\n".format(mrr_k, epoch, mrr))
 
