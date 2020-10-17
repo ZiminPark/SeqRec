@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras.layers import Input, Dense, Dropout, GRU
 from tensorflow.keras.losses import categorical_crossentropy
 from tensorflow.keras.models import Model
@@ -64,7 +65,7 @@ def get_metrics(data, model, args, k: int):
     recall_list = []
     mrr_list = []
 
-    for inputs, label, mask in loader:
+    for inputs, label, mask in tqdm(loader, total=len(data) // args.batch_size):
 
         input_ohe = to_categorical(inputs, num_classes=args.num_items)
         input_ohe = np.expand_dims(input_ohe, axis=1)
@@ -72,9 +73,10 @@ def get_metrics(data, model, args, k: int):
         pred = model.predict(input_ohe, batch_size=args.batch_size)
 
         for row_idx in range(inputs.shape[0]):
-            pred_row = pred[row_idx]
-            recall_list.append(recall_k(pred_row, label, k))
-            mrr_list.append(mrr_k(pred_row, label, k))
+            pred_row = tf.argsort(pred[row_idx], direction='DESCENDING')
+            label_row = label[row_idx]
+            recall_list.append(recall_k(pred_row, label_row, k))
+            mrr_list.append(mrr_k(pred_row, label_row, k))
 
     recall = np.mean(recall_list)
     mrr = np.mean(mrr_list)
@@ -84,7 +86,7 @@ def get_metrics(data, model, args, k: int):
 def mrr_k(pred, truth: int, k: int):
     indexing = np.where(pred[:k] == truth)[0]
     if len(indexing) > 0:
-        return 1 / (indexing + 1)
+        return 1 / (indexing[0] + 1)
     else:
         return 0
 
