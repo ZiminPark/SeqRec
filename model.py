@@ -1,5 +1,4 @@
 import numpy as np
-from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.layers import Input, Dense, Dropout, GRU
 from tensorflow.keras.losses import categorical_crossentropy
 from tensorflow.keras.models import Model
@@ -22,35 +21,33 @@ def create_model(args):
 
 
 def train_model(model, args):
-    train_dataset = SessionDataset(args.train_data)
-
-    for epoch in range(1, args.epochs):
+    for epoch in range(1, args.epochs + 1):
         with tqdm(total=args.train_samples_qty) as pbar:
+            train_dataset = SessionDataset(args.train_data)
             loader = SessionDataLoader(train_dataset, batch_size=args.batch_size)
             for feat, target, mask in loader:
+                reset_hidden_states(model, mask)
 
-                gru_layer = model.get_layer(name="GRU")
-                hidden_states = gru_layer.states[0].numpy()
-                for elt in mask:
-                    hidden_states[elt, :] = 0
-                gru_layer.reset_states(states=hidden_states)
+                input_ohe = to_categorical(feat, num_classes=loader.n_items)
+                input_ohe = np.expand_dims(input_ohe, axis=1)
+                target_ohe = to_categorical(target, num_classes=loader.n_items)
 
-                input_oh = to_categorical(feat, num_classes=loader.n_items)
-                input_oh = np.expand_dims(input_oh, axis=1)
+                tr_loss = model.train_on_batch(input_ohe, target_ohe)
 
-                target_oh = to_categorical(target, num_classes=loader.n_items)
-
-                tr_loss = model.train_on_batch(input_oh, target_oh)
-
-                pbar.set_description("Epoch {0}. Loss: {1:.5f}".format(epoch, tr_loss))
+                pbar.set_description(f'Epoch {epoch}. Loss: {tr_loss:.5f}')  # todo update this
                 pbar.update(loader.done_sessions_counter)
 
-        print("Saving weights...")
-        model.save('./GRU4REC_{}.h5'.format(epoch))
+        (recall, recall_k), (mrr, mrr_k) = get_metrics(model, args, train_dataset.itemmap)
+        print(f"\t - Recall@{recall_k} epoch {epoch}: {recall:5f}")
+        print(f"\t - MRR@{mrr_k}    epoch {epoch}: {mrr:5f}\n")
 
-        (rec, rec_k), (mrr, mrr_k) = get_metrics(model, args, train_dataset.itemmap)
-        print("\t - Recall@{} epoch {}: {:5f}".format(rec_k, epoch, rec))
-        print("\t - MRR@{}    epoch {}: {:5f}\n".format(mrr_k, epoch, mrr))
+
+def reset_hidden_states(model, mask):
+    gru_layer = model.get_layer(name='GRU')
+    hidden_states = gru_layer.states[0].numpy()
+    for elt in mask:
+        hidden_states[elt, :] = 0
+    gru_layer.reset_states(states=hidden_states)
 
 
 def get_metrics(model, args, train_generator_map, recall_k=20, mrr_k=20):
