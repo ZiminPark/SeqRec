@@ -65,7 +65,7 @@ class SessionDataLoader:
                 target = df['item_idx'].values[start + i + 1]
                 yield inp, target, mask
 
-            start, end, max_iter, finished = self.update_status(start, end, min_len, max_iter, finished)
+            start, end, mask, max_iter, finished = self.update_status(start, end, min_len, max_iter, finished)
 
     def update_status(self, start, end, min_len, max_iter, finished):
         # click indices where a particular session meets second-to-last element
@@ -82,4 +82,4 @@ class SessionDataLoader:
             # update the next starting/ending point
             start[idx] = self.click_offsets[self.session_idx_arr[max_iter]]
             end[idx] = self.click_offsets[self.session_idx_arr[max_iter] + 1]
-        return start, end, max_iter, finished
+        return start, end, mask, max_iter, finished
