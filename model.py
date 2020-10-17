@@ -71,12 +71,11 @@ def get_metrics(data, model, args, k: int):
         input_ohe = np.expand_dims(input_ohe, axis=1)
 
         pred = model.predict(input_ohe, batch_size=args.batch_size)
+        pred_arg = tf.argsort(pred, direction='DESCENDING')
 
-        for row_idx in range(inputs.shape[0]):
-            pred_row = tf.argsort(pred[row_idx], direction='DESCENDING')
-            label_row = label[row_idx]
-            recall_list.append(recall_k(pred_row, label_row, k))
-            mrr_list.append(mrr_k(pred_row, label_row, k))
+        length = len(inputs)
+        recall_list = [recall_k(pred_arg[i], label[i], k) for i in range(length)]
+        mrr_list = [mrr_k(pred_arg[i], label[i], k) for i in range(length)]
 
     recall = np.mean(recall_list)
     mrr = np.mean(mrr_list)
