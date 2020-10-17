@@ -20,12 +20,12 @@ def create_model(args):
     return model
 
 
-def train_model(model, args, train, valid, test):
+def train_model(model, args, train, valid):
     train_dataset = SessionDataset(train)
     train_loader = SessionDataLoader(train_dataset, batch_size=args.batch_size)
 
     for epoch in range(1, args.epochs + 1):
-        tr_loader = tqdm(train_loader, total=args.train_samples_qty)
+        tr_loader = tqdm(train_loader, total=len(train)//args.batch_size)
         for i, (feat, target, mask) in enumerate(tr_loader):
             reset_hidden_states(model, mask)
 
@@ -36,16 +36,16 @@ def train_model(model, args, train, valid, test):
             tr_loss = model.train_on_batch(input_ohe, target_ohe)
             tr_loader.set_postfix(train_loss=tr_loss)
 
-        val_recall, val_mrr = get_metrics(valid, model, args, 20)
+        val_recall, val_mrr = get_metrics(valid, model, args, args.k)
 
-        print(f"\t - Recall@{recall_k} epoch {epoch}: {val_recall:3f}")
-        print(f"\t - MRR@{mrr_k}    epoch {epoch}: {val_mrr:3f}\n")
+        print(f"\t - Recall@{args.k} epoch {epoch}: {val_recall:3f}")
+        print(f"\t - MRR@{args.k}    epoch {epoch}: {val_mrr:3f}\n")
 
 
 def test_model(model, args, test):
     test_recall, test_mrr = get_metrics(test, model, args, 20)
-    print(f"\t - Recall@{recall_k}: {test_recall:3f}")
-    print(f"\t - MRR@{mrr_k}: {test_mrr:3f}\n")
+    print(f"\t - Recall@{args.k}: {test_recall:3f}")
+    print(f"\t - MRR@{args.k}: {test_mrr:3f}\n")
 
 
 def reset_hidden_states(model, mask):
@@ -66,7 +66,7 @@ def get_metrics(data, model, args, k: int):
 
     for inputs, label, mask in loader:
 
-        input_ohe = to_categorical(inputs, num_classes=args.train_n_items)
+        input_ohe = to_categorical(inputs, num_classes=args.num_items)
         input_ohe = np.expand_dims(input_ohe, axis=1)
 
         pred = model.predict(input_ohe, batch_size=args.batch_size)
@@ -82,8 +82,11 @@ def get_metrics(data, model, args, k: int):
 
 
 def mrr_k(pred, truth: int, k: int):
-    rank = np.where(pred[:k] == truth)[0] + 1
-    return 1 / rank
+    indexing = np.where(pred[:k] == truth)[0]
+    if len(indexing) > 0:
+        return 1 / (indexing + 1)
+    else:
+        return 0
 
 
 def recall_k(pred, truth: int, k: int) -> int:
