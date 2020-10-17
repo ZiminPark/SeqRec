@@ -31,18 +31,16 @@ class SessionDataset:
 class SessionDataLoader:
     """Credit to yhs-968/pyGRU4REC."""
 
-    def __init__(self, dataset, batch_size=50):
-        """
-        A class for creating session-parallel mini-batches.
-        Args:
-            dataset (SessionDataset): the session dataset to generate the batches from
-            batch_size (int): size of the batch
-        """
+    def __init__(self, dataset: SessionDataset, batch_size=50):
         self.dataset = dataset
         self.batch_size = batch_size
+        self.n_items = dataset.df['ItemId'].nunique() + 1
+        self.click_offsets = self.dataset.click_offsets
+        self.session_idx_arr = self.dataset.session_idx_arr
         self.done_sessions_counter = 0
+        self.max_iter = 0
 
-    def __iter__(self):  # https://dojang.io/mod/page/view.php?id=2405
+    def __iter__(self):
         """ Returns the iterator for producing session-parallel training mini-batches.
         Yields:
             input (B,):  Item indices that will be encoded as one-hot vectors later.
@@ -51,14 +49,10 @@ class SessionDataLoader:
         """
 
         df = self.dataset.df
-        self.n_items = df['ItemId'].nunique() + 1
-        click_offsets = self.dataset.click_offsets
-        session_idx_arr = self.dataset.session_idx_arr
-
         iters = np.arange(self.batch_size)
         max_iter = iters.max()
-        start = click_offsets[session_idx_arr[iters]]  # Session Start
-        end = click_offsets[session_idx_arr[iters] + 1]  # Session End
+        start = self.click_offsets[self.session_idx_arr[iters]]  # Session Start
+        end = self.click_offsets[self.session_idx_arr[iters] + 1]  # Session End
         mask = []  # indicator for the sessions to be terminated
         finished = False
 
@@ -67,21 +61,25 @@ class SessionDataLoader:
             # Item indices (for embedding) for clicks where the first sessions start
             for i in range(min_len - 1):
                 # Build inputs & targets
-                inp = df.item_idx.values[start + i]
-                target = df.item_idx.values[start + i + 1]
+                inp = df['item_idx'].values[start + i]
+                target = df['item_idx'].values[start + i + 1]
                 yield inp, target, mask
 
-            # click indices where a particular session meets second-to-last element
-            start = start + (min_len - 1)
-            # see if how many sessions should terminate
-            mask = np.arange(len(iters))[(end - start) <= 1]
-            self.done_sessions_counter = len(mask)
-            for idx in mask:
-                max_iter += 1
-                if max_iter >= len(click_offsets) - 1:
-                    finished = True
-                    break
-                # update the next starting/ending point
-                iters[idx] = max_iter
-                start[idx] = click_offsets[session_idx_arr[max_iter]]
-                end[idx] = click_offsets[session_idx_arr[max_iter] + 1]
+            start, end, max_iter, finished = self.update_status(start, end, min_len, max_iter, finished)
+
+    def update_status(self, start, end, min_len, max_iter, finished):
+        # click indices where a particular session meets second-to-last element
+        start = start + (min_len - 1)
+        # see if how many sessions should terminate
+        mask = np.arange(self.batch_size)[(end - start) <= 1]
+        self.done_sessions_counter = len(mask)
+        for idx in mask:
+            max_iter += 1
+            if max_iter >= len(self.click_offsets) - 1:
+                self.max_iter = max_iter
+                finished = True
+                break
+            # update the next starting/ending point
+            start[idx] = self.click_offsets[self.session_idx_arr[max_iter]]
+            end[idx] = self.click_offsets[self.session_idx_arr[max_iter] + 1]
+        return start, end, max_iter, finished
