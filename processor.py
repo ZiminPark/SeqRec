@@ -51,7 +51,8 @@ def split_by_date(data: pd.DataFrame, n_days: int):
 
 def stats_info(data: pd.DataFrame, status: str):
     print(f'* {status} Set Stats Info\n'
-          f'\tEvents: {len(data)}\n'
-          f'\tSessions: {data["SessionId"].nunique()}\n'
-          f'\tItems: {data["ItemId"].nunique()}\n'
-          f'\tLast Time : {data["Time"].max()}\n')
+          f'\t Events: {len(data)}\n'
+          f'\t Sessions: {data["SessionId"].nunique()}\n'
+          f'\t Items: {data["ItemId"].nunique()}\n'
+          f'\t First Time : {data["Time"].min()}\n'
+          f'\t Last Time : {data["Time"].max()}\n')
