@@ -1,30 +1,23 @@
 import numpy as np
+from typing import Dict
 
 
 class SessionDataset:
     """Credit to yhs-968/pyGRU4REC."""
 
-    def __init__(self, data, session_key='SessionId', item_key='ItemId', time_key='Time'):
+    def __init__(self, data, vocab: Dict[int, int]):
         self.df = data
-        self.session_key = session_key
-        self.item_key = item_key
-        self.time_key = time_key
-        self.idx2id = self.get_vocab()
-        self.df['item_idx'] = self.df['ItemId'].map(self.idx2id.get)
-
-        self.df.sort_values([session_key, time_key], inplace=True)
+        self.df.sort_values(['SessionID', 'Time'], inplace=True)
+        self.df['item_idx'] = self.df['ItemId'].map(lambda x: vocab.get(x, -1))
         self.click_offsets = self.get_click_offsets()
-        self.session_idx_arr = np.arange(self.df[self.session_key].nunique())  # indexing to SessionId
-
-    def get_vocab(self):
-        return {index: item_id for item_id, index in enumerate(self.df['ItemId'].unique())}
+        self.session_idx_arr = np.arange(self.df['SessionID'].nunique())  # indexing to SessionId
 
     def get_click_offsets(self):
         """
         Return the indexes of the first click of each session IDs,
         """
-        offsets = np.zeros(self.df[self.session_key].nunique() + 1, dtype=np.int32)
-        offsets[1:] = self.df.groupby(self.session_key).size().cumsum()
+        offsets = np.zeros(self.df['SessionID'].nunique() + 1, dtype=np.int32)
+        offsets[1:] = self.df.groupby('SessionID').size().cumsum()
         return offsets
 
 
