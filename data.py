@@ -56,14 +56,14 @@ class SessionDataLoader:
 
     def initialize(self):
         first_iters = np.arange(self.batch_size)
-        last_session = first_iters[-1]
+        last_session = self.batch_size - 1
         start = self.dataset.click_offsets[self.dataset.session_idx[first_iters]]
         end = self.dataset.click_offsets[self.dataset.session_idx[first_iters] + 1]
-        mask = []
+        mask = np.array([])
         finished = False
         return start, end, mask, last_session, finished
 
-    def update_status(self, start, end, min_len, last_session, finished):
+    def update_status(self, start: np.ndarray, end: np.ndarray, min_len: int, last_session: int, finished: bool):
         start += min_len
         mask = np.arange(self.batch_size)[(end - start) == 1]
 
