@@ -11,7 +11,7 @@ class SessionDataset:
     def __init__(self, data):
         self.df = data
         self.click_offsets = self.get_click_offsets()
-        self.session_idx_arr = np.arange(self.df['SessionId'].nunique())  # indexing to SessionId
+        self.session_idx = np.arange(self.df['SessionId'].nunique())  # indexing to SessionId
 
     def get_click_offsets(self):
         """
@@ -57,8 +57,8 @@ class SessionDataLoader:
     def initialize(self):
         first_iters = np.arange(self.batch_size)
         last_session = first_iters[-1]
-        start = self.dataset.click_offsets[self.dataset.session_idx_arr[first_iters]]
-        end = self.dataset.click_offsets[self.dataset.session_idx_arr[first_iters] + 1]
+        start = self.dataset.click_offsets[self.dataset.session_idx[first_iters]]
+        end = self.dataset.click_offsets[self.dataset.session_idx[first_iters] + 1]
         mask = []
         finished = False
         return start, end, mask, last_session, finished
@@ -69,12 +69,12 @@ class SessionDataLoader:
 
         for i, idx in enumerate(mask, start=1):
             new_session = last_session + i
-            if new_session > self.dataset.session_idx_arr[-1]:
+            if new_session > self.dataset.session_idx[-1]:
                 finished = True
                 break
             # update the next starting/ending point
-            start[idx] = self.dataset.click_offsets[self.dataset.session_idx_arr[new_session]]
-            end[idx] = self.dataset.click_offsets[self.dataset.session_idx_arr[new_session] + 1]
+            start[idx] = self.dataset.click_offsets[self.dataset.session_idx[new_session]]
+            end[idx] = self.dataset.click_offsets[self.dataset.session_idx[new_session] + 1]
 
         last_session += len(mask)
         return start, end, mask, last_session, finished
