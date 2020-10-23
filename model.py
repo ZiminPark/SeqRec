@@ -60,6 +60,7 @@ def get_metrics(data, model, args, k: int):
 
     total_step = len(data) - data['SessionId'].nunique()
     for inputs, label, mask in tqdm(loader, total=total_step // args.batch_size, desc='Evaluation', mininterval=1):
+        reset_hidden_states(model, mask)
         input_ohe = to_categorical(inputs, num_classes=args.num_items)
         input_ohe = np.expand_dims(input_ohe, axis=1)
 
