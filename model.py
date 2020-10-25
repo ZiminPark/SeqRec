@@ -17,7 +17,7 @@ def create_model(args):
     dropout = Dropout(args.drop_rate)(gru)
     predictions = Dense(args.num_items, activation='softmax')(dropout)
     model = Model(inputs=inputs, outputs=[predictions])
-    model.compile(loss=categorical_crossentropy, optimizer=Adam(args.lr))
+    model.compile(loss=categorical_crossentropy, optimizer=Adam(args.lr), metrics=['accuracy'])
     model.summary()
     return model
 
@@ -36,8 +36,8 @@ def train_model(model, args):
             input_ohe = np.expand_dims(input_ohe, axis=1)
             target_ohe = to_categorical(target, num_classes=args.num_items)
 
-            tr_loss = model.train_on_batch(input_ohe, target_ohe)
-            tr_loader.set_postfix(train_loss=tr_loss)
+            res = model.train_on_batch(input_ohe, target_ohe)
+            tr_loader.set_postfix(train_loss=res[0], acc=res[1])
 
         val_recall, val_mrr = get_metrics(args.val, model, args, args.k)
 
